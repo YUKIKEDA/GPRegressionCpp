@@ -1,4 +1,4 @@
-﻿# CMakeList.txt : GPRegressionCpp の CMake プロジェクト。ソースを含めて、次を定義します:
+# CMakeList.txt : GPRegressionCpp の CMake プロジェクト。ソースを含めて、次を定義します:
 # プロジェクト専用ロジックはこちらです。
 #
 cmake_minimum_required (VERSION 3.8)
@@ -12,10 +12,15 @@ endif()
 project ("GPRegressionCpp")
 
 # ソースをこのプロジェクトの実行可能ファイルに追加します。
-add_executable (GPRegressionCpp "GPRegressionCpp.cpp" "GPRegressionCpp.h")
+# add_executable (GPRegressionCpp "src/main.cpp")
 
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET GPRegressionCpp PROPERTY CXX_STANDARD 20)
-endif()
+# includeディレクトリをインクルードパスに追加
+# target_include_directories(GPRegressionCpp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-# TODO: テストを追加し、必要な場合は、ターゲットをインストールします。
+# if (CMAKE_VERSION VERSION_GREATER 3.12)
+#   set_property(TARGET GPRegressionCpp PROPERTY CXX_STANDARD 20)
+# endif()
+
+# テストの追加
+enable_testing()
+add_subdirectory(tests)
