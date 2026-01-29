@@ -24,8 +24,6 @@ using json = nlohmann::json;
 using namespace gprcpp::optimize;
 using Eigen::VectorXd;
 
-// TODO: Pythonの結果との比較は参考情報にとどめて、理論値との比較でテストは検証する
-
 namespace
 {
   /**
@@ -170,59 +168,6 @@ namespace
       v(i) = j[i].get<double>();
     }
     return v;
-  }
-
-  /**
-   * @brief 結果が理論的最適値に近いかを判定する
-   *
-   * @param test_name テストケース名
-   * @param actual 実際の計算結果
-   * @param theoretical 理論上の最適値
-   * @param tolerance 許容誤差
-   * @return true 合格
-   * @return false 不合格
-   */
-  bool checkOptimality(const std::string &test_name, double actual, double theoretical, double tolerance)
-  {
-    // 1. 理論値より良い（小さい）場合は無条件でOK（浮動小数点誤差などで起こり得る）
-    if (actual <= theoretical + 1e-15)
-    {
-      return true;
-    }
-
-    // 2. 誤差の計算
-    double diff = std::abs(actual - theoretical);
-
-    // 3. 許容範囲内かチェック
-    if (diff > tolerance)
-    {
-      std::cerr << "\n[FAILURE] " << test_name << ": Failed to converge to global minimum.\n"
-                << "  Theoretical: " << std::fixed << std::setprecision(9) << theoretical << "\n"
-                << "  Actual:      " << std::fixed << std::setprecision(9) << actual << "\n"
-                << "  Difference:  " << std::scientific << diff << "\n"
-                << "  Tolerance:   " << std::scientific << tolerance << "\n"
-                << std::endl;
-      return false;
-    }
-    return true;
-  }
-
-  /**
-   * @brief 次元数に応じた許容誤差を決定する
-   */
-  double determineTolerance(int dimension)
-  {
-    if (dimension <= 2)
-      return 1e-4; // 低次元は高精度を期待
-    if (dimension <= 5)
-      return 1e-2; // 5次元程度なら中程度の精度
-    if (dimension <= 10)
-      return 0.5; // 10次元を超えると厳密な収束は難しい場合がある
-    if (dimension <= 20)
-      return 2.0; // 20次元
-    if (dimension <= 50)
-      return 15.0; // 50次元（非常に困難）
-    return 50.0;   // 100次元以上（収束していればOK程度）
   }
 }
 
