@@ -51,18 +51,6 @@ namespace gprcpp
     };
 
     /**
-     * @struct OptimizerOptions
-     * @brief 最適化処理のオプション設定
-     */
-    struct OptimizerOptions
-    {
-      int max_iterations = 1000;    ///< 最大反復回数
-      double tolerance = 1e-6;      ///< 収束判定の許容誤差
-      std::optional<Bounds> bounds; ///< 境界条件（オプション、未指定の場合は制約なし）
-      bool verbose = false;         ///< 詳細な出力を行うかどうか
-    };
-
-    /**
      * @typedef ObjectiveFunction
      * @brief 目的関数の型エイリアス
      *
@@ -75,11 +63,14 @@ namespace gprcpp
      * @class Optimizer
      * @brief 最適化処理のインターフェースクラス
      *
+     * @tparam T 最適化オプションの型。派生クラスで指定する。
+     *
      * 各種最適化アルゴリズム（Nelder-Mead、Dual Annealingなど）の
      * 基底クラスとして使用されます。
      *
      * @note 派生クラスは minimize() メソッドを実装する必要があります。
      */
+    template <typename T>
     class Optimizer
     {
     public:
@@ -94,38 +85,12 @@ namespace gprcpp
        * 指定された目的関数を最小化し、最適なパラメータ値を探索します。
        *
        * @param objective 最小化する目的関数
-       * @param initial_params 初期パラメータ値
        * @param options 最適化オプション（最大反復回数、許容誤差など）
        * @return OptimizationResult 最適化結果
        */
       virtual OptimizationResult minimize(
           const ObjectiveFunction &objective,
-          const Eigen::VectorXd &initial_params,
-          const OptimizerOptions &options = OptimizerOptions{}) = 0;
-
-      /**
-       * @brief 境界条件付きで目的関数を最小化する
-       *
-       * 境界条件を指定して目的関数を最小化します。
-       * このメソッドは OptimizerOptions に境界条件を設定して
-       * オーバーロードされた minimize() を呼び出します。
-       *
-       * @param objective 最小化する目的関数
-       * @param initial_params 初期パラメータ値
-       * @param bounds パラメータの境界条件
-       * @param options 最適化オプション（最大反復回数、許容誤差など）
-       * @return OptimizationResult 最適化結果
-       */
-      OptimizationResult minimize(
-          const ObjectiveFunction &objective,
-          const Eigen::VectorXd &initial_params,
-          const Bounds &bounds,
-          const OptimizerOptions &options = OptimizerOptions{})
-      {
-        OptimizerOptions opts = options;
-        opts.bounds = bounds;
-        return minimize(objective, initial_params, opts);
-      }
+          const T &options) = 0;
 
     protected:
       /**

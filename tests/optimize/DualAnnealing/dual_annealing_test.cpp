@@ -1,8 +1,8 @@
 ﻿/**
- * @file nelder_mead_test.cpp
- * @brief Nelder-MeadアルゴリズムのGoogleTestテスト
+ * @file dual_annealing_test.cpp
+ * @brief Dual AnnealingアルゴリズムのGoogleTestテスト
  *
- * JSONファイルからテストデータを読み込み、Nelder-Meadアルゴリズムの
+ * JSONファイルからテストデータを読み込み、Dual Annealingアルゴリズムの
  * 実装を検証します。
  */
 
@@ -17,12 +17,14 @@
 #include <iostream>
 #include <iomanip>
 
-#include "optimize/NelderMead/nelder_mead.hpp"
+#include "optimize/DualAnnealing/dual_annealing.hpp"
 #include "optimize/optimizer.hpp"
 
 using json = nlohmann::json;
 using namespace gprcpp::optimize;
 using Eigen::VectorXd;
+
+// TODO: Pythonの結果との比較は参考情報にとどめて、理論値との比較でテストは検証する
 
 namespace
 {
@@ -83,6 +85,20 @@ namespace
         return sum;
       };
     }
+    else if (name == "Griewank")
+    {
+      return [](const VectorXd &x) -> double
+      {
+        const Eigen::Index n = x.size();
+        double sum_term = x.squaredNorm() / 4000.0;
+        double prod_term = 1.0;
+        for (Eigen::Index i = 0; i < n; ++i)
+        {
+          prod_term *= std::cos(x(i) / std::sqrt(static_cast<double>(i + 1)));
+        }
+        return sum_term - prod_term + 1.0;
+      };
+    }
     else if (name == "Beale")
     {
       return [](const VectorXd &x) -> double
@@ -111,6 +127,15 @@ namespace
         double x1 = x(0);
         double x2 = x(1);
         return 0.26 * (x1 * x1 + x2 * x2) - 0.48 * x1 * x2;
+      };
+    }
+    else if (name == "Easom")
+    {
+      return [](const VectorXd &x) -> double
+      {
+        double x1 = x(0);
+        double x2 = x(1);
+        return -std::cos(x1) * std::cos(x2) * std::exp(-((x1 - std::numbers::pi) * (x1 - std::numbers::pi) + (x2 - std::numbers::pi) * (x2 - std::numbers::pi)));
       };
     }
     else
@@ -146,12 +171,65 @@ namespace
     }
     return v;
   }
+
+  /**
+   * @brief 結果が理論的最適値に近いかを判定する
+   *
+   * @param test_name テストケース名
+   * @param actual 実際の計算結果
+   * @param theoretical 理論上の最適値
+   * @param tolerance 許容誤差
+   * @return true 合格
+   * @return false 不合格
+   */
+  bool checkOptimality(const std::string &test_name, double actual, double theoretical, double tolerance)
+  {
+    // 1. 理論値より良い（小さい）場合は無条件でOK（浮動小数点誤差などで起こり得る）
+    if (actual <= theoretical + 1e-15)
+    {
+      return true;
+    }
+
+    // 2. 誤差の計算
+    double diff = std::abs(actual - theoretical);
+
+    // 3. 許容範囲内かチェック
+    if (diff > tolerance)
+    {
+      std::cerr << "\n[FAILURE] " << test_name << ": Failed to converge to global minimum.\n"
+                << "  Theoretical: " << std::fixed << std::setprecision(9) << theoretical << "\n"
+                << "  Actual:      " << std::fixed << std::setprecision(9) << actual << "\n"
+                << "  Difference:  " << std::scientific << diff << "\n"
+                << "  Tolerance:   " << std::scientific << tolerance << "\n"
+                << std::endl;
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * @brief 次元数に応じた許容誤差を決定する
+   */
+  double determineTolerance(int dimension)
+  {
+    if (dimension <= 2)
+      return 1e-4; // 低次元は高精度を期待
+    if (dimension <= 5)
+      return 1e-2; // 5次元程度なら中程度の精度
+    if (dimension <= 10)
+      return 0.5; // 10次元を超えると厳密な収束は難しい場合がある
+    if (dimension <= 20)
+      return 2.0; // 20次元
+    if (dimension <= 50)
+      return 15.0; // 50次元（非常に困難）
+    return 50.0;   // 100次元以上（収束していればOK程度）
+  }
 }
 
 /**
- * @brief Nelder-Meadテストのフィクスチャクラス
+ * @brief Dual Annealingテストのフィクスチャクラス
  */
-class NelderMeadTest : public ::testing::Test
+class DualAnnealingTest : public ::testing::Test
 {
 protected:
   void SetUp() override
@@ -159,25 +237,25 @@ protected:
     // テストデータファイルのパスを取得
     std::filesystem::path test_file(__FILE__);
     std::filesystem::path data_dir = test_file.parent_path() / "data";
-    std::filesystem::path json_file = data_dir / "nelder_mead_test_data.json";
+    std::filesystem::path json_file = data_dir / "dual_annealing_test_data.json";
 
     // JSONファイルを読み込む
     std::string json_path = json_file.string();
     test_data_ = loadTestData(json_path);
     test_cases_ = test_data_["test_cases"];
 
-    optimizer_ = std::make_unique<NelderMeadOptimizer>();
+    optimizer_ = std::make_unique<DualAnnealingOptimizer>();
   }
 
   json test_data_;
   json test_cases_;
-  std::unique_ptr<NelderMeadOptimizer> optimizer_;
+  std::unique_ptr<DualAnnealingOptimizer> optimizer_;
 };
 
 /**
  * @brief 各テストケースに対して最適化を実行し、結果を検証
  */
-TEST_F(NelderMeadTest, TestAllCases)
+TEST_F(DualAnnealingTest, TestAllCases)
 {
   for (const auto &test_case : test_cases_)
   {
@@ -195,27 +273,52 @@ TEST_F(NelderMeadTest, TestAllCases)
     double initial_value = objective(initial_params);
 
     // オプション設定
-    NelderMeadOptions options;
+    DualAnnealingOptions options;
     options.max_iterations = test_case["options"]["max_iterations"].get<int>();
-    options.xatol = test_case["options"]["tolerance"].get<double>();
 
     options.initial_params = initial_params;
 
-    // 境界条件がある場合は設定
     if (test_case.contains("bounds"))
     {
+      // 境界条件がある場合は設定
       VectorXd lower = jsonToVector(test_case["bounds"]["lower"]);
       VectorXd upper = jsonToVector(test_case["bounds"]["upper"]);
       options.bounds = Bounds(lower, upper);
     }
+    else
+    {
+      // 境界がない場合、初期点を中心に広い範囲の境界を設定
+      // 初期点の各次元に対して、±50の範囲を設定
+      VectorXd lower(dimension);
+      VectorXd upper(dimension);
+      for (int i = 0; i < dimension; ++i)
+      {
+        lower(i) = initial_params(i) - 50.0;
+        upper(i) = initial_params(i) + 50.0;
+      }
+      options.bounds = Bounds(lower, upper);
+    }
 
-    // 期待される結果
-    const auto &expected = test_case["expected_result"];
-    VectorXd expected_params = jsonToVector(expected["optimal_parameters"]);
-    double expected_value = expected["optimal_value"].get<double>();
-    bool expected_converged = expected["converged"].get<bool>();
+    // Dual Annealing専用オプション
+    const auto &da_opts = test_case["da_options"];
+    options.initial_temp = da_opts["initial_temp"].get<double>();
+    options.visit_param = da_opts["visit_param"].get<double>();
+    options.accept_param = da_opts["accept_param"].get<double>();
+    options.restart_temp_ratio = da_opts["restart_temp_ratio"].get<double>();
+    options.max_function_evaluations = da_opts["max_function_evaluations"].get<int>();
 
-    // 理論値
+    // シード値がある場合は設定
+    if (test_case.contains("seed") && !test_case["seed"].is_null())
+    {
+      options.seed = test_case["seed"].get<unsigned int>();
+    }
+
+    // 期待値 (Pythonの結果)
+    bool expected_converged = test_case["expected_result"]["converged"].get<bool>();
+    double expected_value = test_case["expected_result"]["optimal_value"].get<double>();
+    VectorXd expected_params = jsonToVector(test_case["expected_result"]["optimal_parameters"]);
+
+    // 理論上の最適値を取得
     double theoretical_value = test_case["function"]["optimal_value"].get<double>();
     VectorXd theoretical_params = jsonToVector(test_case["function"]["optimal_point"]);
 
@@ -235,19 +338,20 @@ TEST_F(NelderMeadTest, TestAllCases)
     // 収束した場合
     if (expected_converged)
     {
-      // Nelder-Mead法は局所最適化アルゴリズムなので、理論値ではなく期待値（Pythonの結果）との比較
+      // 理論値との比較
+      // Dual Annealingはグローバル最適化アルゴリズムなので、理論値との比較
 
       // 収束判定の比較
       if (actual_converged != expected_converged)
       {
         // 目的関数値の比較
-        EXPECT_NEAR(actual_optimal_value, expected_value, 1e-6)
+        EXPECT_NEAR(actual_optimal_value, theoretical_value, 1e-3)
             << "Optimal value mismatch for " << test_name;
 
         // パラメータ値の比較
         for (int i = 0; i < actual_optimal_parameters.size(); ++i)
         {
-          EXPECT_NEAR(actual_optimal_parameters(i), expected_params(i), 1e-5)
+          EXPECT_NEAR(actual_optimal_parameters(i), theoretical_params(i), 1e-1)
               << "Parameter " << i << " mismatch for " << test_name;
         }
 
@@ -258,13 +362,13 @@ TEST_F(NelderMeadTest, TestAllCases)
       else
       {
         // 目的関数値の比較
-        EXPECT_NEAR(actual_optimal_value, expected_value, 1e-6)
+        EXPECT_NEAR(actual_optimal_value, theoretical_value, 1e-3)
             << "Optimal value mismatch for " << test_name;
 
         // パラメータ値の比較
         for (int i = 0; i < actual_optimal_parameters.size(); ++i)
         {
-          EXPECT_NEAR(actual_optimal_parameters(i), expected_params(i), 1e-5)
+          EXPECT_NEAR(actual_optimal_parameters(i), theoretical_params(i), 1e-1)
               << "Parameter " << i << " mismatch for " << test_name;
         }
       }
@@ -301,7 +405,7 @@ TEST_F(NelderMeadTest, TestAllCases)
 /**
  * @brief 低次元のテストケースのみを実行（高速なテスト）
  */
-TEST_F(NelderMeadTest, TestLowDimensionalCases)
+TEST_F(DualAnnealingTest, TestLowDimensionalCases)
 {
   for (const auto &test_case : test_cases_)
   {
@@ -326,9 +430,8 @@ TEST_F(NelderMeadTest, TestLowDimensionalCases)
     double initial_value = objective(initial_params);
 
     // オプション設定
-    NelderMeadOptions options;
+    DualAnnealingOptions options;
     options.max_iterations = test_case["options"]["max_iterations"].get<int>();
-    options.xatol = test_case["options"]["tolerance"].get<double>();
 
     options.initial_params = initial_params;
 
@@ -339,12 +442,38 @@ TEST_F(NelderMeadTest, TestLowDimensionalCases)
       VectorXd upper = jsonToVector(test_case["bounds"]["upper"]);
       options.bounds = Bounds(lower, upper);
     }
+    else
+    {
+      // 境界がない場合、初期点を中心に広い範囲の境界を設定
+      // 初期点の各次元に対して、±50の範囲を設定
+      VectorXd lower(dimension);
+      VectorXd upper(dimension);
+      for (int i = 0; i < dimension; ++i)
+      {
+        lower(i) = initial_params(i) - 50.0;
+        upper(i) = initial_params(i) + 50.0;
+      }
+      options.bounds = Bounds(lower, upper);
+    }
 
-    // 期待される結果
-    const auto &expected = test_case["expected_result"];
-    VectorXd expected_params = jsonToVector(expected["optimal_parameters"]);
-    double expected_value = expected["optimal_value"].get<double>();
-    bool expected_converged = expected["converged"].get<bool>();
+    // Dual Annealing専用オプション
+    const auto &da_opts = test_case["da_options"];
+    options.initial_temp = da_opts["initial_temp"].get<double>();
+    options.visit_param = da_opts["visit_param"].get<double>();
+    options.accept_param = da_opts["accept_param"].get<double>();
+    options.restart_temp_ratio = da_opts["restart_temp_ratio"].get<double>();
+    options.max_function_evaluations = da_opts["max_function_evaluations"].get<int>();
+
+    // シード値がある場合は設定
+    if (test_case.contains("seed") && !test_case["seed"].is_null())
+    {
+      options.seed = test_case["seed"].get<unsigned int>();
+    }
+
+    // 期待値 (Pythonの結果)
+    bool expected_converged = test_case["expected_result"]["converged"].get<bool>();
+    double expected_value = test_case["expected_result"]["optimal_value"].get<double>();
+    VectorXd expected_params = jsonToVector(test_case["expected_result"]["optimal_parameters"]);
 
     // 理論値
     double theoretical_value = test_case["function"]["optimal_value"].get<double>();
@@ -366,19 +495,20 @@ TEST_F(NelderMeadTest, TestLowDimensionalCases)
     // 収束した場合
     if (expected_converged)
     {
-      // Nelder-Mead法は局所最適化アルゴリズムなので、理論値ではなく期待値（Pythonの結果）との比較
+      // 理論値との比較
+      // Dual Annealingはグローバル最適化アルゴリズムなので、理論値との比較
 
       // 収束判定の比較
       if (actual_converged != expected_converged)
       {
         // 目的関数値の比較
-        EXPECT_NEAR(actual_optimal_value, expected_value, 1e-6)
+        EXPECT_NEAR(actual_optimal_value, theoretical_value, 1e-3)
             << "Optimal value mismatch for " << test_name;
 
         // パラメータ値の比較
         for (int i = 0; i < actual_optimal_parameters.size(); ++i)
         {
-          EXPECT_NEAR(actual_optimal_parameters(i), expected_params(i), 1e-5)
+          EXPECT_NEAR(actual_optimal_parameters(i), theoretical_params(i), 1e-1)
               << "Parameter " << i << " mismatch for " << test_name;
         }
 
@@ -389,13 +519,13 @@ TEST_F(NelderMeadTest, TestLowDimensionalCases)
       else
       {
         // 目的関数値の比較
-        EXPECT_NEAR(actual_optimal_value, expected_value, 1e-6)
+        EXPECT_NEAR(actual_optimal_value, theoretical_value, 1e-3)
             << "Optimal value mismatch for " << test_name;
 
         // パラメータ値の比較
         for (int i = 0; i < actual_optimal_parameters.size(); ++i)
         {
-          EXPECT_NEAR(actual_optimal_parameters(i), expected_params(i), 1e-5)
+          EXPECT_NEAR(actual_optimal_parameters(i), theoretical_params(i), 1e-1)
               << "Parameter " << i << " mismatch for " << test_name;
         }
       }
@@ -430,9 +560,9 @@ TEST_F(NelderMeadTest, TestLowDimensionalCases)
 }
 
 /**
- * @brief 高次元のテストケース（収束しない場合でも値が改善されていることを確認）
+ * @brief 高次元のテストケース（値が改善されていることを確認）
  */
-TEST_F(NelderMeadTest, TestHighDimensionalCases)
+TEST_F(DualAnnealingTest, TestHighDimensionalCases)
 {
   for (const auto &test_case : test_cases_)
   {
@@ -457,9 +587,8 @@ TEST_F(NelderMeadTest, TestHighDimensionalCases)
     double initial_value = objective(initial_params);
 
     // オプション設定
-    NelderMeadOptions options;
+    DualAnnealingOptions options;
     options.max_iterations = test_case["options"]["max_iterations"].get<int>();
-    options.xatol = test_case["options"]["tolerance"].get<double>();
 
     options.initial_params = initial_params;
 
@@ -470,14 +599,40 @@ TEST_F(NelderMeadTest, TestHighDimensionalCases)
       VectorXd upper = jsonToVector(test_case["bounds"]["upper"]);
       options.bounds = Bounds(lower, upper);
     }
+    else
+    {
+      // 境界がない場合、初期点を中心に広い範囲の境界を設定
+      // 初期点の各次元に対して、±50の範囲を設定
+      VectorXd lower(dimension);
+      VectorXd upper(dimension);
+      for (int i = 0; i < dimension; ++i)
+      {
+        lower(i) = initial_params(i) - 50.0;
+        upper(i) = initial_params(i) + 50.0;
+      }
+      options.bounds = Bounds(lower, upper);
+    }
 
-    // 期待される結果
-    const auto &expected = test_case["expected_result"];
-    double expected_value = expected["optimal_value"].get<double>();
-    VectorXd expected_params = jsonToVector(expected["optimal_parameters"]);
-    bool expected_converged = expected["converged"].get<bool>();
+    // Dual Annealing専用オプション
+    const auto &da_opts = test_case["da_options"];
+    options.initial_temp = da_opts["initial_temp"].get<double>();
+    options.visit_param = da_opts["visit_param"].get<double>();
+    options.accept_param = da_opts["accept_param"].get<double>();
+    options.restart_temp_ratio = da_opts["restart_temp_ratio"].get<double>();
+    options.max_function_evaluations = da_opts["max_function_evaluations"].get<int>();
 
-    // 理論値
+    // シード値がある場合は設定
+    if (test_case.contains("seed") && !test_case["seed"].is_null())
+    {
+      options.seed = test_case["seed"].get<unsigned int>();
+    }
+
+    // 期待値 (Pythonの結果)
+    bool expected_converged = test_case["expected_result"]["converged"].get<bool>();
+    double expected_value = test_case["expected_result"]["optimal_value"].get<double>();
+    VectorXd expected_params = jsonToVector(test_case["expected_result"]["optimal_parameters"]);
+
+    // 理論上の最適値を取得
     double theoretical_value = test_case["function"]["optimal_value"].get<double>();
     VectorXd theoretical_params = jsonToVector(test_case["function"]["optimal_point"]);
 
@@ -497,19 +652,20 @@ TEST_F(NelderMeadTest, TestHighDimensionalCases)
     // 収束した場合
     if (expected_converged)
     {
-      // Nelder-Mead法は局所最適化アルゴリズムなので、理論値ではなく期待値（Pythonの結果）との比較
+      // 理論値との比較
+      // Dual Annealingはグローバル最適化アルゴリズムなので、理論値との比較
 
       // 収束判定の比較
       if (actual_converged != expected_converged)
       {
         // 目的関数値の比較
-        EXPECT_NEAR(actual_optimal_value, expected_value, 1e-6)
+        EXPECT_NEAR(actual_optimal_value, theoretical_value, 1e-3)
             << "Optimal value mismatch for " << test_name;
 
         // パラメータ値の比較
         for (int i = 0; i < actual_optimal_parameters.size(); ++i)
         {
-          EXPECT_NEAR(actual_optimal_parameters(i), expected_params(i), 1e-5)
+          EXPECT_NEAR(actual_optimal_parameters(i), theoretical_params(i), 1e-1)
               << "Parameter " << i << " mismatch for " << test_name;
         }
 
@@ -520,13 +676,13 @@ TEST_F(NelderMeadTest, TestHighDimensionalCases)
       else
       {
         // 目的関数値の比較
-        EXPECT_NEAR(actual_optimal_value, expected_value, 1e-6)
+        EXPECT_NEAR(actual_optimal_value, theoretical_value, 1e-3)
             << "Optimal value mismatch for " << test_name;
 
         // パラメータ値の比較
         for (int i = 0; i < actual_optimal_parameters.size(); ++i)
         {
-          EXPECT_NEAR(actual_optimal_parameters(i), expected_params(i), 1e-5)
+          EXPECT_NEAR(actual_optimal_parameters(i), theoretical_params(i), 1e-1)
               << "Parameter " << i << " mismatch for " << test_name;
         }
       }
@@ -563,7 +719,7 @@ TEST_F(NelderMeadTest, TestHighDimensionalCases)
 /**
  * @brief 境界条件のテスト
  */
-TEST_F(NelderMeadTest, TestWithBounds)
+TEST_F(DualAnnealingTest, TestWithBounds)
 {
   for (const auto &test_case : test_cases_)
   {
@@ -584,9 +740,8 @@ TEST_F(NelderMeadTest, TestWithBounds)
     VectorXd initial_params = jsonToVector(test_case["initial_parameters"]);
 
     // オプション設定
-    NelderMeadOptions options;
+    DualAnnealingOptions options;
     options.max_iterations = test_case["options"]["max_iterations"].get<int>();
-    options.xatol = test_case["options"]["tolerance"].get<double>();
 
     options.initial_params = initial_params;
 
@@ -594,6 +749,20 @@ TEST_F(NelderMeadTest, TestWithBounds)
     VectorXd lower = jsonToVector(test_case["bounds"]["lower"]);
     VectorXd upper = jsonToVector(test_case["bounds"]["upper"]);
     options.bounds = Bounds(lower, upper);
+
+    // Dual Annealing専用オプション
+    const auto &da_opts = test_case["da_options"];
+    options.initial_temp = da_opts["initial_temp"].get<double>();
+    options.visit_param = da_opts["visit_param"].get<double>();
+    options.accept_param = da_opts["accept_param"].get<double>();
+    options.restart_temp_ratio = da_opts["restart_temp_ratio"].get<double>();
+    options.max_function_evaluations = da_opts["max_function_evaluations"].get<int>();
+
+    // シード値がある場合は設定
+    if (test_case.contains("seed") && !test_case["seed"].is_null())
+    {
+      options.seed = test_case["seed"].get<unsigned int>();
+    }
 
     // 最適化を実行
     OptimizationResult result = optimizer_->minimize(objective, options);

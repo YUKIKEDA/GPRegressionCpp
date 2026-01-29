@@ -23,6 +23,21 @@ namespace gprcpp
   namespace optimize
   {
     /**
+     * @struct AlgorithmParameters
+     * @brief アルゴリズムパラメータ
+     *
+     * Nelder-Mead法のアルゴリズムパラメータを保持する構造体です。
+     * 標準的な値（Nelder & Mead, 1965）がデフォルトとして設定されています。
+     */
+    struct AlgorithmParameters
+    {
+      double rho = 1.0;   ///< 収縮係数
+      double chi = 2.0;   ///< 反射係数
+      double psi = 0.5;   ///< 拡張係数
+      double sigma = 0.5; ///< 縮小係数
+    };
+
+    /**
      * @struct NelderMeadOptions
      * @brief Nelder-Mead法専用のオプション設定
      *
@@ -31,42 +46,14 @@ namespace gprcpp
      */
     struct NelderMeadOptions
     {
-      /**
-       * @brief 反射係数（α）
-       *
-       * 最悪点を重心の反対側に反射する際の係数です。
-       * 標準値は1.0で、反射点は以下の式で計算されます：
-       * x_r = x_c + α * (x_c - x_w)
-       */
-      double alpha = 1.0;
-
-      /**
-       * @brief 拡張係数（γ）
-       *
-       * 反射が成功した場合に、さらに遠くまで探索する際の係数です。
-       * 標準値は2.0で、拡張点は以下の式で計算されます：
-       * x_e = x_c + γ * (x_r - x_c)
-       */
-      double gamma = 2.0;
-
-      /**
-       * @brief 収縮係数（ρ）
-       *
-       * 外側収縮または内側収縮を行う際の係数です。
-       * 標準値は0.5で、以下の式で計算されます：
-       * - 外側収縮: x_oc = x_c + ρ * (x_r - x_c)
-       * - 内側収縮: x_ic = x_c - ρ * (x_c - x_w)
-       */
-      double rho = 0.5;
-
-      /**
-       * @brief 縮小係数（σ）
-       *
-       * シンプレックス全体を最良点に向かって縮小する際の係数です。
-       * 標準値は0.5で、縮小後の点は以下の式で計算されます：
-       * x_i = x_b + σ * (x_i - x_b)
-       */
-      double sigma = 0.5;
+      std::optional<int> max_iterations;    ///< 最大反復回数
+      std::optional<Bounds> bounds;         ///< 境界条件（オプション、未指定の場合は制約なし）
+      Eigen::VectorXd initial_params;       ///< 初期パラメータ値
+      AlgorithmParameters algorithm_params; ///< アルゴリズムパラメータ
+      double xatol = 1e-4;                  ///< パラメータの収束判定の許容誤差
+      double fatol = 1e-4;                  ///< 目的関数の収束判定の許容誤差
+      std::optional<int> max_fun_evals;     ///< 最大関数評価回数
+      bool is_adaptive = false;             ///< 適応的なシンプレックス生成を使用するかどうか (これをtrueにすると、反射、拡張、収縮、縮小のステップサイズを適応的に調整します)
     };
 
     /**
@@ -82,7 +69,7 @@ namespace gprcpp
      * @see OptimizerOptions
      * @see NelderMeadOptions
      */
-    class NelderMeadOptimizer : public Optimizer
+    class NelderMeadOptimizer : public Optimizer<NelderMeadOptions>
     {
     public:
       /**
@@ -120,193 +107,272 @@ namespace gprcpp
        */
       OptimizationResult minimize(
           const ObjectiveFunction &objective,
-          const Eigen::VectorXd &initial_params,
-          const OptimizerOptions &options = OptimizerOptions{}) override
+          const NelderMeadOptions &options = NelderMeadOptions{}) override
       {
-        return minimize(objective, initial_params, options, NelderMeadOptions{});
-      }
-
-      /**
-       * @brief 目的関数を最小化する（Nelder-Mead専用オプション付き）
-       *
-       * Nelder-Mead法を使用して、指定された目的関数を最小化します。
-       * Nelder-Mead法のハイパーパラメータ（α, γ, ρ, σ）をカスタマイズできます。
-       *
-       * @param objective 最小化する目的関数。パラメータベクトルを受け取り、
-       *                  目的関数の値を返す関数オブジェクト
-       * @param initial_params 初期パラメータ値。探索の開始点として使用されます。
-       *                       各次元の値に基づいて初期シンプレックスが生成されます。
-       * @param options 最適化オプション。以下の設定が可能です：
-       *                - max_iterations: 最大反復回数（デフォルト: 1000）
-       *                - tolerance: 収束判定の許容誤差（デフォルト: 1e-6）
-       *                - bounds: パラメータの境界条件（オプション）
-       *                - verbose: 詳細な出力を行うかどうか（デフォルト: false）
-       * @param nm_options Nelder-Mead法専用のオプション。以下の係数を設定できます：
-       *                   - alpha: 反射係数（デフォルト: 1.0）
-       *                   - gamma: 拡張係数（デフォルト: 2.0）
-       *                   - rho: 収縮係数（デフォルト: 0.5）
-       *                   - sigma: 縮小係数（デフォルト: 0.5）
-       *
-       * @return OptimizationResult 最適化結果。以下の情報を含みます：
-       *         - optimal_parameters: 最適化されたパラメータ値
-       *         - optimal_value: 最適化された目的関数の値（最小値）
-       *         - converged: 収束したかどうか
-       *         - iterations: 実行された反復回数
-       *         - message: 最適化処理の状態メッセージ
-       *
-       * @note 次元が0の場合、エラーメッセージと共に結果を返します。
-       * @note 初期ステップサイズは、各次元の5%または0.1の大きい方として自動設定されます。
-       * @note 境界制約が指定されている場合、生成された点は自動的に境界内にクリップされます。
-       *
-       * @see OptimizerOptions
-       * @see NelderMeadOptions
-       * @see OptimizationResult
-       */
-      OptimizationResult minimize(
-          const ObjectiveFunction &objective,
-          const Eigen::VectorXd &initial_params,
-          const OptimizerOptions &options,
-          const NelderMeadOptions &nm_options)
-      {
-        Eigen::Index n = initial_params.size();
-        if (n == 0)
+        int dim = static_cast<int>(options.initial_params.size());
+        if (dim == 0)
         {
           OptimizationResult result;
-          result.optimal_parameters = initial_params;
-          result.optimal_value = objective(initial_params);
+          result.optimal_parameters = options.initial_params;
+          result.optimal_value = objective(options.initial_params);
           result.converged = false;
           result.iterations = 0;
           result.message = "Invalid dimension: dimension must be > 0";
           return result;
         }
 
-        // 初期シンプレックスを生成（scipyの実装に合わせる）
-        std::vector<Vertex> simplex = initializeSimplex(initial_params);
+        // ------------------------------------------------------------
+        // 設定とパラメータの準備
+        // ------------------------------------------------------------
 
-        // 各頂点での関数値を評価
-        for (auto &vertex : simplex)
+        // 適応的なアルゴリズムパラメータを生成
+        AlgorithmParameters algo_params = options.algorithm_params;
+        if (options.is_adaptive)
         {
-          vertex.value = objective(vertex.point);
+          algo_params = generateAdaptiveParams(dim);
         }
 
-        // 反復処理
-        for (int iteration = 0; iteration < options.max_iterations; ++iteration)
-        {
-          // 頂点を並び替え（最良、次点、最悪を特定）
-          sortVertices(simplex);
+        // 最大反復回数と最大関数評価回数の設定 (SciPyのデフォルト準拠: N * 200)
+        int max_iter = options.max_iterations.has_value() ? options.max_iterations.value() : (dim * 200);
+        int max_fun = options.max_fun_evals.has_value() ? options.max_fun_evals.value() : (dim * 200);
 
-          // 収束判定
-          if (isConverged(simplex, options.tolerance))
+        // 関数評価回数カウンタ付きのラッパー
+        int func_evals = 0;
+        auto wrapped_objective = [&](const Eigen::VectorXd &x) -> double
+        {
+          func_evals++;
+          return objective(x);
+        };
+
+        // ------------------------------------------------------------
+        // 初期化処理
+        // ------------------------------------------------------------
+
+        // 初期パラメータ
+        Eigen::VectorXd x0 = options.initial_params;
+
+        // 境界条件のチェック
+        if (options.bounds.has_value())
+        {
+          // 境界条件が下限が上限より大きいかチェック
+          if ((options.bounds.value().lower.array() > options.bounds.value().upper.array()).any())
           {
-            OptimizationResult result;
-            result.optimal_parameters = simplex[0].point;
-            result.optimal_value = simplex[0].value;
-            result.converged = true;
-            result.iterations = iteration + 1;
-            result.message = "Converged";
-            return result;
+            throw std::invalid_argument("One of the lower bounds is greater than an upper bound.");
+          }
+          // 初期パラメータが境界条件内にあるかチェック
+          // if (!checkBounds(x0, options.bounds.value()))
+          // {
+          //   throw std::invalid_argument("Initial parameters are not within the bounds.");
+          // }
+          // 初期パラメータを境界条件にクリップ
+          x0 = clipToBounds(x0, options.bounds.value());
+        }
+
+        // 初期シンプレックスを生成
+        std::vector<Vertex> simplex = initializeSimplex(x0, options.bounds);
+
+        // 初期シンプレックスの各頂点での関数値を評価
+        for (auto &vertex : simplex)
+        {
+          vertex.value = wrapped_objective(vertex.point);
+
+          if (func_evals >= max_fun)
+          {
+            break;
+          }
+        }
+
+        // 初期ソート
+        sortVertices(simplex);
+
+        // ------------------------------------------------------------
+        // メインループ
+        // ------------------------------------------------------------
+        int iterations = 1;
+        bool converged = false;
+        std::string message = "";
+
+        while (func_evals < max_fun && iterations <= max_iter)
+        {
+          // 収束判定
+          if (isConverged(simplex, options.xatol, options.fatol))
+          {
+            converged = true;
+            message = "Optimization terminated successfully.";
+            break;
           }
 
           // 重心を計算（最悪点を除く）
-          Eigen::VectorXd centroid = computeCentroid(simplex);
-          const Eigen::VectorXd &worst_point = simplex.back().point;
-          double worst_value = simplex.back().value;
-          double best_value = simplex[0].value;
-          double second_value = simplex[simplex.size() - 2].value;
+          Eigen::VectorXd xbar = computeCentroid(simplex);
 
-          // 境界制約がある場合、重心をクリップ
+          // 参照用の最悪点、次点、最良点を取得
+          // simplexはソート済みなので、
+          // 最良点はsimplex[0]、次点はsimplex[dim - 2]、最悪点はsimplex[dim]で取得できる
+          const double f_best = simplex[0].value;
+          const double f_second_worst = simplex[simplex.size() - 2].value;
+          const double f_worst = simplex.back().value;
+
+          const Eigen::VectorXd &x_worst = simplex.back().point;
+
+          bool do_shrink = false;
+
+          // 反射 (Reflection)
+          // xr = (1 + rho) * xbar - rho * x_worst
+          Eigen::VectorXd xr = (1.0 + algo_params.rho) * xbar - algo_params.rho * x_worst;
+
           if (options.bounds.has_value())
           {
-            centroid = clipToBounds(centroid, options.bounds.value());
+            xr = clipToBounds(xr, options.bounds.value());
           }
 
-          // 反射（scipyの実装に合わせる: xr = (1 + rho) * xbar - rho * worst）
-          Eigen::VectorXd reflected = (1.0 + nm_options.alpha) * centroid - nm_options.alpha * worst_point;
-          if (options.bounds.has_value())
+          double f_xr = wrapped_objective(xr);
+          if (func_evals >= max_fun)
           {
-            reflected = clipToBounds(reflected, options.bounds.value());
+            break;
           }
-          double reflected_value = objective(reflected);
 
-          if (reflected_value < best_value)
+          if (f_xr < f_best)
           {
-            // 拡張（scipyの実装に合わせる: xe = (1 + rho * chi) * xbar - rho * chi * worst）
-            Eigen::VectorXd expanded = (1.0 + nm_options.alpha * nm_options.gamma) * centroid - nm_options.alpha * nm_options.gamma * worst_point;
+            // 拡張 (Expansion)
+            // xe = (1 + rho * chi) * xbar - rho * chi * x_worst
+            Eigen::VectorXd xe = (1.0 + algo_params.rho * algo_params.chi) * xbar - algo_params.rho * algo_params.chi * x_worst;
+
             if (options.bounds.has_value())
             {
-              expanded = clipToBounds(expanded, options.bounds.value());
+              xe = clipToBounds(xe, options.bounds.value());
             }
-            double expanded_value = objective(expanded);
 
-            if (expanded_value < reflected_value)
+            double f_xe = wrapped_objective(xe);
+            if (func_evals >= max_fun)
             {
-              simplex.back().point = expanded;
-              simplex.back().value = expanded_value;
+              break;
+            }
+
+            if (f_xe < f_xr)
+            {
+              simplex.back() = Vertex(xe, f_xe);
             }
             else
             {
-              simplex.back().point = reflected;
-              simplex.back().value = reflected_value;
+              simplex.back() = Vertex(xr, f_xr);
             }
           }
-          else if (reflected_value < second_value)
+          else // f_xr >= f_best
           {
-            // 反射点で置換
-            simplex.back().point = reflected;
-            simplex.back().value = reflected_value;
-          }
-          else if (reflected_value < worst_value)
-          {
-            // 外側収縮（scipyの実装に合わせる: xc = (1 + psi * rho) * xbar - psi * rho * worst）
-            Eigen::VectorXd outside_contracted = (1.0 + nm_options.rho * nm_options.alpha) * centroid - nm_options.rho * nm_options.alpha * worst_point;
-            if (options.bounds.has_value())
+            if (f_xr < f_second_worst)
             {
-              outside_contracted = clipToBounds(outside_contracted, options.bounds.value());
+              // 反射を採用
+              simplex.back() = Vertex(xr, f_xr);
             }
-            double oc_value = objective(outside_contracted);
+            else // f_xr >= f_second_worst
+            {
+              // 収縮 (Contraction)
+              if (f_xr < f_worst)
+              {
+                // 外部収縮 (Outside Contraction)
+                // xc = (1 + psi * rho) * xbar - psi * rho * x_worst
+                Eigen::VectorXd xc = (1.0 + algo_params.rho * algo_params.psi) * xbar - algo_params.rho * algo_params.psi * x_worst;
 
-            if (oc_value <= reflected_value)
-            {
-              simplex.back().point = outside_contracted;
-              simplex.back().value = oc_value;
-            }
-            else
-            {
-              // 縮小
-              shrinkSimplex(simplex, objective, nm_options.sigma);
+                if (options.bounds.has_value())
+                {
+                  xc = clipToBounds(xc, options.bounds.value());
+                }
+
+                double f_xc = wrapped_objective(xc);
+                if (func_evals >= max_fun)
+                {
+                  break;
+                }
+
+                if (f_xc <= f_xr)
+                {
+                  simplex.back() = Vertex(xc, f_xc);
+                }
+                else
+                {
+                  do_shrink = true;
+                }
+              }
+              else
+              {
+                // 内部収縮 (Inside Contraction)
+                // xcc = (1 - psi) * xbar + psi * x_worst
+                Eigen::VectorXd xcc = (1.0 - algo_params.psi) * xbar + algo_params.psi * x_worst;
+
+                if (options.bounds.has_value())
+                {
+                  xcc = clipToBounds(xcc, options.bounds.value());
+                }
+
+                double f_xcc = wrapped_objective(xcc);
+                if (func_evals >= max_fun)
+                {
+                  break;
+                }
+
+                if (f_xcc < f_worst)
+                {
+                  simplex.back() = Vertex(xcc, f_xcc);
+                }
+                else
+                {
+                  do_shrink = true;
+                }
+              }
+
+              // 縮小 (Shrink)
+              if (do_shrink)
+              {
+                const Eigen::VectorXd x0_shrink = simplex[0].point;
+                for (size_t i = 1; i < simplex.size(); ++i)
+                {
+                  simplex[i].point = x0_shrink + algo_params.sigma * (simplex[i].point - x0_shrink);
+
+                  if (options.bounds.has_value())
+                  {
+                    simplex[i].point = clipToBounds(simplex[i].point, options.bounds.value());
+                  }
+
+                  simplex[i].value = wrapped_objective(simplex[i].point);
+                  if (func_evals >= max_fun)
+                  {
+                    break;
+                  }
+                }
+              }
             }
           }
-          else
-          {
-            // 内側収縮（scipyの実装に合わせる: xcc = (1 - psi) * xbar + psi * worst）
-            Eigen::VectorXd inside_contracted = (1.0 - nm_options.rho) * centroid + nm_options.rho * worst_point;
-            if (options.bounds.has_value())
-            {
-              inside_contracted = clipToBounds(inside_contracted, options.bounds.value());
-            }
-            double ic_value = objective(inside_contracted);
 
-            if (ic_value < worst_value)
-            {
-              simplex.back().point = inside_contracted;
-              simplex.back().value = ic_value;
-            }
-            else
-            {
-              // 縮小
-              shrinkSimplex(simplex, objective, nm_options.sigma);
-            }
+          iterations++;
+
+          // 次の反復のためにシンプレックスをソート
+          sortVertices(simplex);
+        }
+
+        // ------------------------------------------------------------
+        // 結果の返却
+        // ------------------------------------------------------------
+        if (!converged)
+        {
+          if (func_evals >= max_fun)
+          {
+            message = "Maximum number of function evaluations has been exceeded.";
+          }
+          else if (iterations >= max_iter)
+          {
+            message = "Maximum number of iterations has been exceeded.";
           }
         }
 
-        // 最大反復回数に達した
         sortVertices(simplex);
+
         OptimizationResult result;
         result.optimal_parameters = simplex[0].point;
         result.optimal_value = simplex[0].value;
-        result.converged = false;
-        result.iterations = options.max_iterations;
-        result.message = "Maximum iterations reached";
+        result.converged = converged;
+        result.iterations = iterations;
+        result.message = message;
+
         return result;
       }
 
@@ -333,59 +399,82 @@ namespace gprcpp
       };
 
       /**
+       * @brief 適応的なアルゴリズムパラメータを生成
+       *
+       * 次元に応じて適応的なアルゴリズムパラメータを生成します。
+       *
+       * @param dimension 次元数
+       *
+       * @return AlgorithmParameters 適応的なアルゴリズムパラメータ
+       */
+      AlgorithmParameters generateAdaptiveParams(int dimension) const
+      {
+        double dim = static_cast<double>(dimension);
+
+        AlgorithmParameters params;
+        params.rho = 1.0;
+        params.chi = 1.0 + 2 / dimension;
+        params.psi = 0.75 - 1 / (2 * dimension);
+        params.sigma = 1 - 1 / dimension;
+        return params;
+      }
+
+      /**
        * @brief 初期シンプレックスを生成
        *
        * 初期点からn+1個の頂点からなるシンプレックスを生成します。
-       * scipyの実装に合わせて、各次元に対して異なる方法でシンプレックスを生成します。
        *
-       * 生成されるシンプレックス:
-       * - 頂点0: initial
-       * - 頂点1: initial の0次元目を 1.05 * initial[0] に変更（initial[0] != 0の場合）
-       *          または 0.00025 に変更（initial[0] == 0の場合）
-       * - 頂点2: initial の1次元目を 1.05 * initial[1] に変更（initial[1] != 0の場合）
-       *          または 0.00025 に変更（initial[1] == 0の場合）
-       * - ...
-       * - 頂点n: initial の(n-1)次元目を 1.05 * initial[n-1] に変更（initial[n-1] != 0の場合）
-       *          または 0.00025 に変更（initial[n-1] == 0の場合）
-       *
-       * @param initial 初期点。シンプレックスの最初の頂点として使用されます。
+       * @param x0_clipped 初期点。シンプレックスの最初の頂点として使用されます。
+       * @param bounds 境界条件。シンプレックスの頂点がこの範囲内に収まるようにクリップされます。
        *
        * @return std::vector<Vertex> 生成されたシンプレックスの頂点リスト。
        *         サイズはn+1（nは初期点の次元数）です。
        *
        * @note 生成された頂点の関数値は初期化時に0.0に設定されますが、
        *       実際の関数値は後で評価されます。
-       * @note この実装はscipy.optimize.minimizeのNelder-Mead実装に基づいています。
        */
       std::vector<Vertex> initializeSimplex(
-          const Eigen::VectorXd &initial) const
+          const Eigen::VectorXd &x0_clipped,
+          const std::optional<Bounds> &bounds) const
       {
-        Eigen::Index n = initial.size();
+        Eigen::Index dim = x0_clipped.size();
         std::vector<Vertex> simplex;
-        simplex.reserve(n + 1);
+        simplex.reserve(dim + 1);
+
+        // 最初の頂点
+        simplex.emplace_back(x0_clipped, 0.0); // 値は後で評価
 
         // scipyの実装に合わせた定数
         const double nonzdelt = 0.05; // 非ゼロ値に対する増分率（5%）
         const double zdelt = 0.00025; // ゼロ値に対する絶対値
 
-        // 最初の頂点は初期点
-        simplex.emplace_back(initial, 0.0);
-
-        // 残りのn個の頂点を生成
-        for (Eigen::Index i = 0; i < n; ++i)
+        for (Eigen::Index k = 0; k < dim; ++k)
         {
-          Eigen::VectorXd point = initial;
-          if (std::abs(point(i)) > 1e-10) // 実質的に0でない場合
+          Eigen::VectorXd y = x0_clipped;
+          if (y(k) != 0.0)
           {
-            // 初期点の値の5%増加（1.05倍）
-            point(i) = (1.0 + nonzdelt) * point(i);
+            y(k) = (1.0 + nonzdelt) * y(k);
           }
           else
           {
-            // 初期点の値が0の場合、小さな絶対値を使用
-            point(i) = zdelt;
+            y(k) = zdelt;
           }
-          simplex.emplace_back(point, 0.0);
+
+          // SciPyの境界処理ロジック (Bounds adjustment)
+          // 1. 生成された点が上限を超えている場合、領域内に反射させる
+          // 2. その後、上下限でクリップする
+          if (bounds.has_value())
+          {
+            const auto &b = bounds.value();
+            if (y(k) > b.upper(k))
+            {
+              y(k) = 2.0 * b.upper(k) - y(k);
+            }
+            // 最終的なクリップ
+            y = clipToBounds(y, b);
+          }
+
+          simplex.emplace_back(y, 0.0);
         }
 
         return simplex;
@@ -397,8 +486,8 @@ namespace gprcpp
        * シンプレックスの頂点を目的関数値の昇順で並び替えます。
        * 並び替え後、以下のように分類されます：
        * - 最良点（simplex[0]）: 最小の目的関数値を持つ頂点
-       * - 次点（simplex[n-1]）: 2番目に小さい目的関数値を持つ頂点
-       * - 最悪点（simplex[n]）: 最大の目的関数値を持つ頂点
+       * - 次点（simplex[dim-1]）: 2番目に小さい目的関数値を持つ頂点
+       * - 最悪点（simplex[dim]）: 最大の目的関数値を持つ頂点
        *
        * @param simplex 並び替えるシンプレックスの頂点リスト（参照渡し）。
        *                この関数呼び出し後、頂点は目的関数値の昇順で並び替えられます。
@@ -421,7 +510,7 @@ namespace gprcpp
        * 操作の基準点として使用されます。
        *
        * 重心は以下の式で計算されます：
-       * x_c = (1/n) * Σ(i≠w) x_i
+       * x_c = (1/dim) * Σ(i≠w) x_i
        *
        * ここで、nは最悪点を除く頂点の数、wは最悪点のインデックスです。
        *
@@ -436,8 +525,8 @@ namespace gprcpp
        */
       Eigen::VectorXd computeCentroid(const std::vector<Vertex> &simplex) const
       {
-        Eigen::Index n = simplex[0].point.size();
-        Eigen::VectorXd centroid = Eigen::VectorXd::Zero(n);
+        Eigen::Index dim = simplex[0].point.size();
+        Eigen::VectorXd centroid = Eigen::VectorXd::Zero(dim);
 
         // 最悪点（最後の要素）を除く全頂点の平均
         for (size_t i = 0; i < simplex.size() - 1; ++i)
@@ -453,87 +542,46 @@ namespace gprcpp
        * @brief 収束判定
        *
        * シンプレックスが収束したかどうかを判定します。
-       * scipyの実装に合わせて、以下の2つの条件の両方が満たされた場合、収束と判定されます：
-       *
-       * 1. **パラメータベースの収束判定**:
-       *    シンプレックスの各頂点（最良点を除く）と最良点の差の最大値が許容誤差以下
-       *    max_i ||x_i - x_best|| <= tolerance
-       *
-       * 2. **関数値ベースの収束判定**:
-       *    最良点と他の点の目的関数値の差の最大値が許容誤差以下
-       *    max_i |f_i - f_best| <= tolerance
        *
        * @param simplex シンプレックスの頂点リスト。この関数はリストを変更しません。
        *                頂点は目的関数値の昇順で並び替えられていることを前提とします。
-       * @param tolerance 収束判定の許容誤差。OptimizerOptionsで指定された値が使用されます。
+       * @param xatol パラメータの収束判定の許容誤差。OptimizerOptionsで指定された値が使用されます。
+       * @param fatol 目的関数の収束判定の許容誤差。OptimizerOptionsで指定された値が使用されます。
        *
        * @return bool 収束した場合true、そうでない場合false
-       *
-       * @note この実装はscipy.optimize.minimizeのNelder-Mead実装に基づいています。
        */
-      bool isConverged(const std::vector<Vertex> &simplex, double tolerance) const
+      bool isConverged(const std::vector<Vertex> &simplex, double xatol, double fatol) const
       {
-        if (simplex.size() < 2)
-        {
-          return true;
-        }
-
         const Eigen::VectorXd &best_point = simplex[0].point;
         double best_value = simplex[0].value;
 
-        // パラメータベースの収束判定: 各頂点と最良点の差の最大値
+        // パラメータベースの収束判定 (L-infinity norm)
         double max_param_diff = 0.0;
         for (size_t i = 1; i < simplex.size(); ++i)
         {
-          double diff = (simplex[i].point - best_point).norm();
-          max_param_diff = std::max(max_param_diff, diff);
+          // 各次元ごとの絶対差分の最大値を計算
+          double diff = (simplex[i].point - best_point).cwiseAbs().maxCoeff();
+
+          if (diff > max_param_diff)
+          {
+            max_param_diff = diff;
+          }
         }
 
-        // 関数値ベースの収束判定: 最良点と他の点の関数値の差の最大値
+        // 関数値ベースの収束判定
         double max_value_diff = 0.0;
         for (size_t i = 1; i < simplex.size(); ++i)
         {
           double diff = std::abs(simplex[i].value - best_value);
-          max_value_diff = std::max(max_value_diff, diff);
+          if (diff > max_value_diff)
+          {
+            max_value_diff = diff;
+          }
         }
 
         // 両方の条件を満たす必要がある
-        return (max_param_diff <= tolerance) && (max_value_diff <= tolerance);
-      }
-
-      /**
-       * @brief シンプレックスを縮小
-       *
-       * 反射、拡張、収縮のすべての操作が失敗した場合に、
-       * シンプレックス全体を最良点に向かって縮小します。
-       * これにより、探索領域を狭め、より細かい探索が可能になります。
-       *
-       * 縮小後の各頂点（最良点を除く）は以下の式で計算されます：
-       * x_i = x_best + σ * (x_i - x_best)
-       *
-       * ここで、σは縮小係数、x_bestは最良点です。
-       *
-       * @param simplex 縮小するシンプレックスの頂点リスト（参照渡し）。
-       *                この関数呼び出し後、最良点を除く全頂点が縮小され、
-       *                各頂点での目的関数値が再評価されます。
-       * @param objective 目的関数。縮小後の各頂点での関数値を評価するために使用されます。
-       * @param sigma 縮小係数。通常は0.5が使用されます。
-       *
-       * @note 最良点（simplex[0]）は変更されません。
-       * @note 縮小後、各頂点での目的関数値が自動的に再評価されます。
-       */
-      void shrinkSimplex(std::vector<Vertex> &simplex,
-                         const ObjectiveFunction &objective,
-                         double sigma) const
-      {
-        const Eigen::VectorXd &best_point = simplex[0].point;
-        for (size_t i = 1; i < simplex.size(); ++i)
-        {
-          simplex[i].point = best_point + sigma * (simplex[i].point - best_point);
-          simplex[i].value = objective(simplex[i].point);
-        }
+        return (max_param_diff <= xatol) && (max_value_diff <= fatol);
       }
     };
-
   }
 }
