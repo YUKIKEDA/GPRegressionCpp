@@ -7,5 +7,9 @@ find_package(GTest CONFIG REQUIRED)
 include(GoogleTest)
 
 # サブディレクトリのテストを追加
+add_subdirectory(kernels/ConstantKernel)
+add_subdirectory(kernels/KernelOperator)
+add_subdirectory(kernels/RBFKernel)
+add_subdirectory(kernels/WhiteNoiseKernel)
 add_subdirectory(optimize/NelderMead)
 add_subdirectory(optimize/DualAnnealing)
