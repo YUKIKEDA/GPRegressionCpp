@@ -3,6 +3,9 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# Temporary directory
+tmp/
+
 # Python
 __pycache__
 .venv
