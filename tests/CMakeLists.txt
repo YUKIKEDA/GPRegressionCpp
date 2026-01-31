@@ -7,6 +7,7 @@ find_package(GTest CONFIG REQUIRED)
 include(GoogleTest)
 
 # サブディレクトリのテストを追加
+add_subdirectory(decomposition/PCA)
 add_subdirectory(kernels/ConstantKernel)
 add_subdirectory(kernels/KernelOperator)
 add_subdirectory(kernels/RBFKernel)
