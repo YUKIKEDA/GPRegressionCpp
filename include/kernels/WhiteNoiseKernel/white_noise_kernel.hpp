@@ -77,6 +77,18 @@ namespace gprcpp
       }
 
       /**
+       * @brief ハイパーパラメータ theta の探索境界を取得（対数スケール）
+       * 元の noise_level の (lower_bound_, upper_bound_) を log 変換した値を返す
+       */
+      std::pair<Eigen::VectorXd, Eigen::VectorXd> get_hyperparameter_bounds() const override
+      {
+        Eigen::VectorXd lower(1), upper(1);
+        lower(0) = std::log(lower_bound_);
+        upper(0) = std::log(upper_bound_);
+        return {lower, upper};
+      }
+
+      /**
        * @brief ホワイトノイズカーネルのハイパーパラメータを取得
        * @return ホワイトノイズカーネルのハイパーパラメータ
        */

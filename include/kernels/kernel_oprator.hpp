@@ -1,4 +1,5 @@
-﻿#include "kernels/kernel.hpp"
+﻿#include <utility>
+#include "kernels/kernel.hpp"
 #include "kernels/ConstantKernel/constant_kernel.hpp"
 
 namespace gprcpp
@@ -87,6 +88,29 @@ namespace gprcpp
       int num_hyperparameters() const override
       {
         return kernel1_->num_hyperparameters() + kernel2_->num_hyperparameters();
+      }
+
+      /**
+       * @brief ハイパーパラメータ theta の探索境界を取得（対数スケール）
+       * 両カーネルの bounds を縦に結合する（sklearn の Sum/Product と同様）
+       */
+      std::pair<Eigen::VectorXd, Eigen::VectorXd> get_hyperparameter_bounds() const override
+      {
+        auto [lo1, up1] = kernel1_->get_hyperparameter_bounds();
+        auto [lo2, up2] = kernel2_->get_hyperparameter_bounds();
+        if (lo1.size() == 0)
+        {
+          return {lo2, up2};
+        }
+        if (lo2.size() == 0)
+        {
+          return {lo1, up1};
+        }
+        Eigen::VectorXd lower(lo1.size() + lo2.size());
+        Eigen::VectorXd upper(up1.size() + up2.size());
+        lower << lo1, lo2;
+        upper << up1, up2;
+        return {lower, upper};
       }
     };
 

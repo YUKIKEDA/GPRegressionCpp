@@ -108,6 +108,18 @@ namespace gprcpp
       }
 
       /**
+       * @brief ハイパーパラメータ theta の探索境界を取得（対数スケール）
+       * 元の length_scale の (lower_bound_, upper_bound_) を log 変換した値を返す
+       */
+      std::pair<Eigen::VectorXd, Eigen::VectorXd> get_hyperparameter_bounds() const override
+      {
+        int n = static_cast<int>(length_scale_.size());
+        Eigen::VectorXd lower = Eigen::VectorXd::Constant(n, std::log(lower_bound_));
+        Eigen::VectorXd upper = Eigen::VectorXd::Constant(n, std::log(upper_bound_));
+        return {lower, upper};
+      }
+
+      /**
        * @brief RBFカーネルのハイパーパラメータを取得（対数スケール）
        * @return theta = log(length_scale)
        */

@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include <string>
+#include <utility>
 #include <iostream>
 #include <Eigen/Dense>
 
@@ -66,6 +67,16 @@ namespace gprcpp
        * @return カーネルのハイパーパラメータの数
        */
       virtual int num_hyperparameters() const = 0;
+
+      /**
+       * @brief ハイパーパラメータ theta の探索境界を取得（対数スケール）
+       *
+       * sklearn と同様、元のパラメータ空間の (lower, upper) を log 変換した値を返す。
+       * 例: length_scale_bounds=(1e-5, 1e5) → (log(1e-5), log(1e5)) ≈ (-11.5, 11.5)
+       *
+       * @return lower, upper のペア。num_hyperparameters()==0 のときは size 0 のベクトル
+       */
+      virtual std::pair<Eigen::VectorXd, Eigen::VectorXd> get_hyperparameter_bounds() const = 0;
 
       /**
        * @brief カーネルのクローン
