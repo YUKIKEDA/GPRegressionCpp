@@ -10,15 +10,15 @@
 #include <cmath>
 #include <fstream>
 #include <filesystem>
+#include <random>
 #include <string>
 
 #include "clustering/k-means/kmeans.hpp"
 
 using json = nlohmann::json;
 using namespace gprcpp::clustering;
-using Eigen::MatrixXd;
-using Eigen::VectorXd;
-using Eigen::VectorXi;
+using MatrixXd = KMeans::MatrixXd;
+using VectorXi = KMeans::VectorXi;
 
 namespace
 {
@@ -55,11 +55,9 @@ namespace
 
   VectorXi jsonToVectorXi(const json &j)
   {
-    VectorXi v(static_cast<Eigen::Index>(j.size()));
+    VectorXi v(j.size());
     for (size_t i = 0; i < j.size(); ++i)
-    {
-      v(static_cast<Eigen::Index>(i)) = j[i].get<int>();
-    }
+      v(i) = j[i].get<int>();
     return v;
   }
 
@@ -112,9 +110,9 @@ TEST_F(KMeansTest, AllCasesMatchExpected)
 
     EXPECT_EQ(kmeans.cluster_centers().rows(), exp_centers.rows()) << "case: " << name;
     EXPECT_EQ(kmeans.cluster_centers().cols(), exp_centers.cols()) << "case: " << name;
-    for (Eigen::Index i = 0; i < kmeans.cluster_centers().rows(); ++i)
+    for (std::size_t i = 0; i < kmeans.cluster_centers().rows(); ++i)
     {
-      for (Eigen::Index j = 0; j < kmeans.cluster_centers().cols(); ++j)
+      for (std::size_t j = 0; j < kmeans.cluster_centers().cols(); ++j)
       {
         EXPECT_NEAR(kmeans.cluster_centers()(i, j), exp_centers(i, j), kTol)
             << "case: " << name << " cluster_centers[" << i << "," << j << "]";
@@ -122,7 +120,7 @@ TEST_F(KMeansTest, AllCasesMatchExpected)
     }
 
     EXPECT_EQ(kmeans.labels().size(), exp_labels.size()) << "case: " << name;
-    for (Eigen::Index i = 0; i < kmeans.labels().size(); ++i)
+    for (std::size_t i = 0; i < kmeans.labels().size(); ++i)
     {
       EXPECT_EQ(kmeans.labels()(i), exp_labels(i)) << "case: " << name << " labels[" << i << "]";
     }
@@ -133,9 +131,9 @@ TEST_F(KMeansTest, AllCasesMatchExpected)
     MatrixXd X_transformed = kmeans.transform(X);
     EXPECT_EQ(X_transformed.rows(), exp_X_transformed.rows()) << "case: " << name;
     EXPECT_EQ(X_transformed.cols(), exp_X_transformed.cols()) << "case: " << name;
-    for (Eigen::Index i = 0; i < X_transformed.rows(); ++i)
+    for (std::size_t i = 0; i < X_transformed.rows(); ++i)
     {
-      for (Eigen::Index j = 0; j < X_transformed.cols(); ++j)
+      for (std::size_t j = 0; j < X_transformed.cols(); ++j)
       {
         EXPECT_NEAR(X_transformed(i, j), exp_X_transformed(i, j), kTol)
             << "case: " << name << " X_transformed[" << i << "," << j << "]";
@@ -144,7 +142,7 @@ TEST_F(KMeansTest, AllCasesMatchExpected)
 
     VectorXi labels_pred = kmeans.predict(X);
     EXPECT_EQ(labels_pred.size(), exp_labels_pred.size()) << "case: " << name;
-    for (Eigen::Index i = 0; i < labels_pred.size(); ++i)
+    for (std::size_t i = 0; i < labels_pred.size(); ++i)
     {
       EXPECT_EQ(labels_pred(i), exp_labels_pred(i)) << "case: " << name << " labels_pred[" << i << "]";
     }
@@ -172,7 +170,7 @@ TEST_F(KMeansTest, FitPredictEqualsFitThenPredict)
     VectorXi labels2 = kmeans2.fit_predict(X);
 
     EXPECT_EQ(labels1.size(), labels2.size()) << "case: " << name;
-    for (Eigen::Index i = 0; i < labels1.size(); ++i)
+    for (std::size_t i = 0; i < labels1.size(); ++i)
     {
       EXPECT_EQ(labels1(i), labels2(i)) << "case: " << name << " [" << i << "]";
     }
@@ -201,9 +199,9 @@ TEST_F(KMeansTest, FitTransformEqualsFitThenTransform)
 
     EXPECT_EQ(t1.rows(), t2.rows()) << "case: " << name;
     EXPECT_EQ(t1.cols(), t2.cols()) << "case: " << name;
-    for (Eigen::Index i = 0; i < t1.rows(); ++i)
+    for (std::size_t i = 0; i < t1.rows(); ++i)
     {
-      for (Eigen::Index j = 0; j < t1.cols(); ++j)
+      for (std::size_t j = 0; j < t1.cols(); ++j)
       {
         EXPECT_NEAR(t1(i, j), t2(i, j), kTol) << "case: " << name << " [" << i << "," << j << "]";
       }
@@ -213,7 +211,12 @@ TEST_F(KMeansTest, FitTransformEqualsFitThenTransform)
 
 TEST_F(KMeansTest, InvalidArgumentsThrow)
 {
-  MatrixXd X = MatrixXd::Random(10, 2);
+  MatrixXd X(10, 2);
+  std::mt19937 rng(42u);
+  std::uniform_real_distribution<double> u01(0, 1);
+  for (std::size_t i = 0; i < X.rows(); ++i)
+    for (std::size_t j = 0; j < X.cols(); ++j)
+      X(i, j) = u01(rng);
 
   EXPECT_THROW(KMeans(0, 300, 1e-4, 42u), std::invalid_argument);
   EXPECT_THROW(KMeans(3, 0, 1e-4, 42u), std::invalid_argument);

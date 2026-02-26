@@ -8,7 +8,8 @@
 
 #pragma once
 
-#include <Eigen/Dense>
+#include "linalg/array.hpp"
+#include "linalg/array_ops.hpp"
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -32,9 +33,9 @@ namespace gprcpp
     class KMeans
     {
     public:
-      using MatrixXd = Eigen::MatrixXd;
-      using VectorXd = Eigen::VectorXd;
-      using VectorXi = Eigen::VectorXi;
+      using MatrixXd = gprcpp::linalg::Array2D<double>;
+      using VectorXd = gprcpp::linalg::Array1D<double>;
+      using VectorXi = gprcpp::linalg::Array1D<int>;
 
       /**
        * @brief コンストラクタ
@@ -71,7 +72,7 @@ namespace gprcpp
         if (init_centers_.has_value())
         {
           const MatrixXd &ic = *init_centers_;
-          if (ic.rows() != static_cast<Eigen::Index>(n_clusters_) || ic.cols() < 1)
+          if (ic.rows() != static_cast<std::size_t>(n_clusters_) || ic.cols() < 1)
           {
             throw std::invalid_argument(
                 "kmeans: init must have shape (n_clusters, n_features)");
@@ -84,15 +85,15 @@ namespace gprcpp
        * @param X データ行列 (n_samples, n_features)
        * @return *this
        */
-      KMeans &fit(const Eigen::Ref<const MatrixXd> &X)
+      KMeans &fit(const MatrixXd &X)
       {
-        const Eigen::Index n_samples = X.rows();
-        const Eigen::Index n_features = X.cols();
+        const std::size_t n_samples = X.rows();
+        const std::size_t n_features = X.cols();
         if (n_samples == 0 || n_features == 0)
         {
           throw std::invalid_argument("kmeans: X must not be empty");
         }
-        if (n_samples < static_cast<Eigen::Index>(n_clusters_))
+        if (n_samples < static_cast<std::size_t>(n_clusters_))
         {
           throw std::invalid_argument(
               "kmeans: n_samples must be >= n_clusters");
@@ -110,7 +111,7 @@ namespace gprcpp
         if (init_centers_.has_value())
         {
           const MatrixXd &ic = *init_centers_;
-          if (ic.rows() != static_cast<Eigen::Index>(n_clusters_) ||
+          if (ic.rows() != static_cast<std::size_t>(n_clusters_) ||
               ic.cols() != n_features)
           {
             throw std::invalid_argument(
@@ -123,7 +124,7 @@ namespace gprcpp
           centers = init_centroids_(X, rng);
         }
 
-        VectorXi labels(X.rows());
+        VectorXi labels(static_cast<std::size_t>(X.rows()));
         double inertia = 0;
         int n_iter = 0;
 
@@ -142,7 +143,7 @@ namespace gprcpp
        * @param X データ行列 (n_samples, n_features)
        * @return ラベルベクトル (n_samples,)
        */
-      VectorXi fit_predict(const Eigen::Ref<const MatrixXd> &X)
+      VectorXi fit_predict(const MatrixXd &X)
       {
         fit(X);
         return labels_;
@@ -153,7 +154,7 @@ namespace gprcpp
        * @param X データ行列 (n_samples, n_features)
        * @return ラベルベクトル (n_samples,)
        */
-      VectorXi predict(const Eigen::Ref<const MatrixXd> &X) const
+      VectorXi predict(const MatrixXd &X) const
       {
         if (!is_fitted())
         {
@@ -172,7 +173,7 @@ namespace gprcpp
        * @param X データ行列 (n_samples, n_features)
        * @return 各サンプルから各クラスタ中心への距離 (n_samples, n_clusters)
        */
-      MatrixXd transform(const Eigen::Ref<const MatrixXd> &X) const
+      MatrixXd transform(const MatrixXd &X) const
       {
         if (!is_fitted())
         {
@@ -191,7 +192,7 @@ namespace gprcpp
        * @param X データ行列 (n_samples, n_features)
        * @return クラスタ距離空間に変換したデータ行列 (n_samples, n_clusters)
        */
-      MatrixXd fit_transform(const Eigen::Ref<const MatrixXd> &X)
+      MatrixXd fit_transform(const MatrixXd &X)
       {
         fit(X);
         return transform(X);
@@ -201,8 +202,8 @@ namespace gprcpp
       const VectorXi &labels() const { return labels_; }
       double inertia() const { return inertia_; }
       int n_iter() const { return n_iter_; }
-      Eigen::Index n_samples() const { return n_samples_; }
-      Eigen::Index n_features() const { return n_features_; }
+      std::size_t n_samples() const { return n_samples_; }
+      std::size_t n_features() const { return n_features_; }
       int n_clusters() const { return n_clusters_; }
 
       bool is_fitted() const { return cluster_centers_.size() > 0; }
@@ -214,8 +215,8 @@ namespace gprcpp
       std::optional<unsigned> random_state_;
       std::optional<MatrixXd> init_centers_;
 
-      Eigen::Index n_samples_{0};
-      Eigen::Index n_features_{0};
+      std::size_t n_samples_{0};
+      std::size_t n_features_{0};
       MatrixXd cluster_centers_;
       VectorXi labels_;
       double inertia_{0};
@@ -232,12 +233,20 @@ namespace gprcpp
         {
           return 0;
         }
-        // 列平均を行方向に複製してから引き、列ごとの分散を求める（colwise()- は列ベクトルを要求するため）
-        const MatrixXd centered =
-            X - X.colwise().mean().replicate(X.rows(), 1);
-        const Eigen::RowVectorXd var_row =
-            centered.array().square().colwise().mean();
-        return var_row.mean() * tol_;
+        const VectorXd col_mean = gprcpp::linalg::column_means(X);
+        MatrixXd centered(X.rows(), X.cols());
+        for (std::size_t i = 0; i < X.rows(); ++i)
+          for (std::size_t j = 0; j < X.cols(); ++j)
+            centered(i, j) = X(i, j) - col_mean(j);
+        double var_sum = 0;
+        for (std::size_t j = 0; j < X.cols(); ++j)
+        {
+          double s = 0;
+          for (std::size_t i = 0; i < X.rows(); ++i)
+            s += centered(i, j) * centered(i, j);
+          var_sum += s / static_cast<double>(X.rows());
+        }
+        return (var_sum / static_cast<double>(X.cols())) * tol_;
       }
 
       /**
@@ -247,7 +256,7 @@ namespace gprcpp
        */
       VectorXd row_norms_squared_(const MatrixXd &X) const
       {
-        return X.rowwise().squaredNorm();
+        return gprcpp::linalg::row_norms_squared(X);
       }
 
       /**
@@ -266,10 +275,14 @@ namespace gprcpp
           const VectorXd &X_sq_norms,
           const VectorXd &Y_sq_norms) const
       {
-        MatrixXd D = -2 * X * Y.transpose();
-        D.colwise() += X_sq_norms;
-        D.rowwise() += Y_sq_norms.transpose();
-        return D.cwiseMax(0); // 数値誤差で微小な負値が出る場合のため
+        MatrixXd D = gprcpp::linalg::matmul_abt(X, Y);
+        for (std::size_t i = 0; i < D.rows(); ++i)
+          for (std::size_t j = 0; j < D.cols(); ++j)
+            D(i, j) *= -2;
+        gprcpp::linalg::add_to_columns(D, X_sq_norms);
+        gprcpp::linalg::add_to_rows(D, Y_sq_norms);
+        gprcpp::linalg::cwise_max_zero(D);
+        return D;
       }
 
       /**
@@ -283,7 +296,7 @@ namespace gprcpp
         VectorXd X_sq = row_norms_squared_(X);
         VectorXd Y_sq = row_norms_squared_(Y);
         MatrixXd D_sq = squared_euclidean_distances_(X, Y, X_sq, Y_sq);
-        return D_sq.array().sqrt().matrix();
+        return gprcpp::linalg::sqrt_elementwise(D_sq);
       }
 
       /**
@@ -298,22 +311,31 @@ namespace gprcpp
           const VectorXd &x_squared_norms,
           std::mt19937 &rng) const
       {
-        const Eigen::Index n_samples = X.rows();
-        const Eigen::Index n_features = X.cols();
-        MatrixXd centers(n_clusters_, n_features);
+        const std::size_t n_samples = X.rows();
+        const std::size_t n_features = X.cols();
+        MatrixXd centers(static_cast<std::size_t>(n_clusters_), n_features);
 
         // 最初の中心をランダムに選択
-        std::uniform_int_distribution<Eigen::Index> dist(0, n_samples - 1);
-        Eigen::Index first = dist(rng);
-        centers.row(0) = X.row(first);
+        std::uniform_int_distribution<std::size_t> dist(0, n_samples - 1);
+        std::size_t first = dist(rng);
+        for (std::size_t j = 0; j < n_features; ++j)
+          centers(0, j) = X(first, j);
 
-        VectorXd closest_dist_sq = squared_euclidean_distances_(
-            X, centers.topRows(1), x_squared_norms, row_norms_squared_(centers.topRows(1)));
-        closest_dist_sq = closest_dist_sq.col(0);
+        MatrixXd centers1(1, n_features);
+        for (std::size_t j = 0; j < n_features; ++j)
+          centers1(0, j) = centers(0, j);
+        VectorXd Y_sq = row_norms_squared_(centers1);
+        MatrixXd closest_dist_sq = squared_euclidean_distances_(
+            X, centers1, x_squared_norms, Y_sq);
+        VectorXd closest_col(n_samples);
+        for (std::size_t i = 0; i < n_samples; ++i)
+          closest_col(i) = closest_dist_sq.at(i, static_cast<std::size_t>(0));
 
         for (int c = 1; c < n_clusters_; ++c)
         {
-          double current_pot = closest_dist_sq.sum();
+          double current_pot = 0;
+          for (std::size_t i = 0; i < n_samples; ++i)
+            current_pot += closest_col(i);
           if (current_pot <= 0)
           {
             break;
@@ -321,16 +343,14 @@ namespace gprcpp
 
           // 累積和で重み付きサンプリング
           VectorXd cumsum(n_samples);
-          cumsum(0) = closest_dist_sq(0);
-          for (Eigen::Index i = 1; i < n_samples; ++i)
-          {
-            cumsum(i) = cumsum(i - 1) + closest_dist_sq(i);
-          }
+          cumsum(0) = closest_col(0);
+          for (std::size_t i = 1; i < n_samples; ++i)
+            cumsum(i) = cumsum(i - 1) + closest_col(i);
 
           std::uniform_real_distribution<double> u01(0, 1);
           double r = u01(rng) * current_pot;
-          Eigen::Index idx = 0;
-          for (Eigen::Index i = 0; i < n_samples; ++i)
+          std::size_t idx = 0;
+          for (std::size_t i = 0; i < n_samples; ++i)
           {
             if (cumsum(i) >= r)
             {
@@ -339,22 +359,23 @@ namespace gprcpp
             }
           }
           if (idx >= n_samples)
-          {
             idx = n_samples - 1;
-          }
 
-          centers.row(c) = X.row(idx);
+          for (std::size_t j = 0; j < n_features; ++j)
+            centers(static_cast<std::size_t>(c), j) = X(idx, j);
 
           // 新しい中心との距離を計算し、最近傍距離を更新
-          VectorXd dist_to_new = squared_euclidean_distances_(
-              X, centers.row(c), x_squared_norms, row_norms_squared_(centers.row(c)));
-          dist_to_new = dist_to_new.col(0);
-          for (Eigen::Index i = 0; i < n_samples; ++i)
+          MatrixXd center_row(1, n_features);
+          for (std::size_t j = 0; j < n_features; ++j)
+            center_row(0, j) = centers(static_cast<std::size_t>(c), j);
+          Y_sq = row_norms_squared_(center_row);
+          MatrixXd dist_mat = squared_euclidean_distances_(
+              X, center_row, x_squared_norms, Y_sq);
+          for (std::size_t i = 0; i < n_samples; ++i)
           {
-            if (dist_to_new(i) < closest_dist_sq(i))
-            {
-              closest_dist_sq(i) = dist_to_new(i);
-            }
+            double d = dist_mat.at(i, static_cast<std::size_t>(0));
+            if (d < closest_col(i))
+              closest_col(i) = d;
           }
         }
 
@@ -386,12 +407,8 @@ namespace gprcpp
         MatrixXd D_sq = squared_euclidean_distances_(X, centers, X_sq, C_sq);
 
         VectorXi labels(X.rows());
-        for (Eigen::Index i = 0; i < X.rows(); ++i)
-        {
-          Eigen::Index j;
-          D_sq.row(i).minCoeff(&j);
-          labels(i) = static_cast<int>(j);
-        }
+        for (std::size_t i = 0; i < X.rows(); ++i)
+          labels(i) = static_cast<int>(gprcpp::linalg::row_argmin(D_sq, i));
         return labels;
       }
 
@@ -408,10 +425,11 @@ namespace gprcpp
           const VectorXi &labels) const
       {
         double sum_sq = 0;
-        for (Eigen::Index i = 0; i < X.rows(); ++i)
+        for (std::size_t i = 0; i < X.rows(); ++i)
         {
           int k = labels(i);
-          sum_sq += (X.row(i) - centers.row(k)).squaredNorm();
+          sum_sq += gprcpp::linalg::row_squared_distance(
+              X, i, centers, static_cast<std::size_t>(k));
         }
         return sum_sq;
       }
@@ -435,8 +453,8 @@ namespace gprcpp
       {
         const double tol_val = tolerance_(X);
         MatrixXd centers_new = centers;
-        VectorXi labels_old = VectorXi::Constant(X.rows(), -1);
-        VectorXd weight_in_clusters = VectorXd::Zero(n_clusters_);
+        VectorXi labels_old(X.rows(), -1);
+        VectorXd weight_in_clusters(static_cast<std::size_t>(n_clusters_), 0.0);
 
         for (n_iter = 0; n_iter < max_iter_; ++n_iter)
         {
@@ -444,51 +462,67 @@ namespace gprcpp
           labels = assign_labels_(X, centers);
 
           // M-step: 中心の更新
-          centers_new.setZero();
-          weight_in_clusters.setZero();
+          centers_new.fill(0);
+          weight_in_clusters.fill(0);
 
-          for (Eigen::Index i = 0; i < X.rows(); ++i)
+          for (std::size_t i = 0; i < X.rows(); ++i)
           {
             int k = labels(i);
-            centers_new.row(k) += X.row(i);
-            weight_in_clusters(k) += 1;
+            for (std::size_t j = 0; j < X.cols(); ++j)
+              centers_new(static_cast<std::size_t>(k), j) += X(i, j);
+            weight_in_clusters(static_cast<std::size_t>(k)) += 1;
           }
 
           // 空クラスタの処理: ランダムなサンプルで置換
-          std::uniform_int_distribution<Eigen::Index> dist(0, X.rows() - 1);
+          std::uniform_int_distribution<std::size_t> dist(0, X.rows() - 1);
           for (int k = 0; k < n_clusters_; ++k)
           {
-            if (weight_in_clusters(k) <= 0)
+            const std::size_t kk = static_cast<std::size_t>(k);
+            if (weight_in_clusters(kk) <= 0)
             {
-              centers_new.row(k) = X.row(dist(rng));
+              std::size_t row = dist(rng);
+              for (std::size_t j = 0; j < X.cols(); ++j)
+                centers_new(kk, j) = X(row, j);
             }
             else
             {
-              centers_new.row(k) /= weight_in_clusters(k);
+              double w = weight_in_clusters(kk);
+              for (std::size_t j = 0; j < X.cols(); ++j)
+                centers_new(kk, j) /= w;
             }
           }
 
           // 収束判定: ラベルが変化しない
-          if ((labels - labels_old).cwiseAbs().maxCoeff() == 0)
+          bool labels_unchanged = true;
+          for (std::size_t i = 0; i < labels.size(); ++i)
           {
-            ++n_iter; // この反復をカウント（sklearn の n_iter_ に合わせる）
+            if (labels(i) != labels_old(i))
+            {
+              labels_unchanged = false;
+              break;
+            }
+          }
+          if (labels_unchanged)
+          {
+            ++n_iter;
             centers = centers_new;
             inertia = compute_inertia_(X, centers, labels);
             return;
           }
 
           // 収束判定: 中心の変化が tol 以下
-          double center_shift_sq = (centers_new - centers).squaredNorm();
+          double center_shift_sq = gprcpp::linalg::frobenius_squared_diff(centers_new, centers);
           if (center_shift_sq <= tol_val)
           {
-            ++n_iter; // この反復をカウント（sklearn の n_iter_ に合わせる）
+            ++n_iter;
             centers = centers_new;
             inertia = compute_inertia_(X, centers, labels);
             return;
           }
 
           centers = centers_new;
-          labels_old = labels;
+          for (std::size_t i = 0; i < labels.size(); ++i)
+            labels_old(i) = labels(i);
         }
 
         inertia = compute_inertia_(X, centers, labels);
